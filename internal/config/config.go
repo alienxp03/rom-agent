@@ -5,6 +5,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -61,29 +62,30 @@ type DatabaseConfig struct {
 	SSLMode  string `yaml:"sslmode"`
 }
 
-var SupportedServers = []string{
-	"sea_el",
-	"sea_mp",
-	"sea_mof",
-	"sea_vg",
-	"eu_el",
-	"rom_classic",
+type ExchangeTargetConfig struct {
+	Market string `yaml:"market"`
 }
 
 // Config holds the main application configuration
 type Config struct {
-	Clients        []Client       `yaml:"clients"`
-	Database       DatabaseConfig `yaml:"database"`
-	SourceDatabase DatabaseConfig `yaml:"source_database"`
-	ResultDatabase DatabaseConfig `yaml:"result_database"`
-	ActiveServer   string         `yaml:"active_server"`
-	Lang           int            `yaml:"lang"`
-	AppPreVersion  int            `yaml:"app_pre_version"`
-	ClientVersion  int            `yaml:"client_version"`
-	Plat           int            `yaml:"plat"`
-	ClientCode     int            `yaml:"client_code"`
-	AuthBaseUrl    string         `yaml:"auth_base_url"`
-	GameLinegroup  int            `yaml:"game_linegroup"`
+	Clients                      []Client             `yaml:"clients"`
+	Database                     DatabaseConfig       `yaml:"database"`
+	SourceDatabase               DatabaseConfig       `yaml:"source_database"`
+	ResultDatabase               DatabaseConfig       `yaml:"result_database"`
+	RuntimeServer                string               `yaml:"runtime_server"`
+	ExchangeTarget               ExchangeTargetConfig `yaml:"exchange_target"`
+	ExchangeMarketAliases        map[string]string    `yaml:"exchange_market_aliases"`
+	Lang                         int                  `yaml:"lang"`
+	AppPreVersion                int                  `yaml:"app_pre_version"`
+	ClientVersion                int                  `yaml:"client_version"`
+	Plat                         int                  `yaml:"plat"`
+	ClientCode                   int                  `yaml:"client_code"`
+	AuthBaseUrl                  string               `yaml:"auth_base_url"`
+	GameLinegroup                int                  `yaml:"game_linegroup"`
+	ExchangeThingSnapshotRefresh string               `yaml:"exchange_thing_snapshot_refresh_interval"`
+	ExchangeTargetRefresh        string               `yaml:"exchange_target_refresh_interval"`
+	ExchangeLowResultBackoff     string               `yaml:"exchange_low_result_backoff"`
+	ExchangeLowResultThreshold   int                  `yaml:"exchange_low_result_threshold"`
 }
 
 // Load reads and parses the configuration file
@@ -186,11 +188,14 @@ func (c *Config) Validate() error {
 	}
 
 	if c.usesExchange() {
-		if c.ActiveServer == "" {
-			return fmt.Errorf("active_server is required when exchange scanning is enabled")
+		if c.RuntimeServer == "" {
+			return fmt.Errorf("runtime_server is required when exchange scanning is enabled")
 		}
-		if !isSupportedServer(c.ActiveServer) {
-			return fmt.Errorf("active_server %q is not supported; expected one of %v", c.ActiveServer, SupportedServers)
+		if c.ExchangeTarget.Market == "" {
+			return fmt.Errorf("exchange_target.market is required when exchange scanning is enabled")
+		}
+		if resolved := c.ResolveExchangeMarket(c.RuntimeServer); resolved != c.ExchangeTarget.Market {
+			return fmt.Errorf("runtime_server %q resolves to market %q, expected %q", c.RuntimeServer, resolved, c.ExchangeTarget.Market)
 		}
 		if err := validateDatabaseConfig("source_database", c.GetSourceDatabaseConfig()); err != nil {
 			return err
@@ -260,6 +265,36 @@ func (c *Config) GetSourceDatabaseConfig() DatabaseConfig {
 	return c.Database
 }
 
+func (c *Config) ExchangeThingSnapshotRefreshInterval() time.Duration {
+	return parseDurationOrDefault(c.ExchangeThingSnapshotRefresh, 12*time.Hour)
+}
+
+func (c *Config) ExchangeTargetRefreshInterval() time.Duration {
+	return parseDurationOrDefault(c.ExchangeTargetRefresh, 5*time.Minute)
+}
+
+func (c *Config) ExchangeLowResultBackoffInterval() time.Duration {
+	return parseDurationOrDefault(c.ExchangeLowResultBackoff, 10*time.Minute)
+}
+
+func (c *Config) ExchangeLowResultThresholdValue() int {
+	if c.ExchangeLowResultThreshold <= 0 {
+		return 10
+	}
+	return c.ExchangeLowResultThreshold
+}
+
+func parseDurationOrDefault(raw string, fallback time.Duration) time.Duration {
+	if raw == "" {
+		return fallback
+	}
+	parsed, err := time.ParseDuration(raw)
+	if err != nil || parsed <= 0 {
+		return fallback
+	}
+	return parsed
+}
+
 func (c *Config) GetResultDatabaseConfig() DatabaseConfig {
 	if c.ResultDatabase.DBName != "" {
 		return c.ResultDatabase
@@ -286,11 +321,12 @@ func validateDatabaseConfig(name string, cfg DatabaseConfig) error {
 	return nil
 }
 
-func isSupportedServer(server string) bool {
-	for _, supported := range SupportedServers {
-		if server == supported {
-			return true
-		}
+func (c *Config) ResolveExchangeMarket(server string) string {
+	if server == "" {
+		return ""
 	}
-	return false
+	if market, ok := c.ExchangeMarketAliases[server]; ok && market != "" {
+		return market
+	}
+	return server
 }

@@ -29,10 +29,11 @@ type Bot struct {
 	// bufferDb     *resources.BufferDb
 
 	// Databases
-	exchangeDb     *db.ExchangeDb
-	scanTargetDb   *db.ScanTargetStore
-	scanResultDb   *db.ScanResultStore
-	activeServerID string
+	exchangeDb         *db.ExchangeDb
+	thingSnapshotStore *db.ExchangeThingSnapshotStore
+	scanTargetDb       *db.ScanTargetStore
+	runtimeServer      string
+	exchangeMarket     string
 	// bossBoardDb  *db.BossBoardDb
 	// pvpDb        *db.PvpDb
 	// auctionDb    *db.AuctionDb
@@ -44,11 +45,12 @@ type Bot struct {
 	exchangeCategories []resources.ExchangeCategory
 
 	// State
-	categoryIndex int
-	jumpZoneList  []string
-	server        string
-	zone          string
-	saveMapId     int
+	categoryIndex           int
+	jumpZoneList            []string
+	server                  string
+	zone                    string
+	saveMapId               int
+	lastExchangeRecordCount int
 
 	// Game client
 	gameClient *client.GameClient
@@ -71,8 +73,8 @@ func New(
 	blueberry, version int,
 	exchangeCategories []resources.ExchangeCategory,
 	exchangeDb *db.ExchangeDb,
+	thingSnapshotStore *db.ExchangeThingSnapshotStore,
 	scanTargetDb *db.ScanTargetStore,
-	scanResultDb *db.ScanResultStore,
 ) *Bot {
 	return &Bot{
 		clientConfig:       cfg,
@@ -81,9 +83,10 @@ func New(
 		version:            version,
 		exchangeCategories: exchangeCategories,
 		exchangeDb:         exchangeDb,
+		thingSnapshotStore: thingSnapshotStore,
 		scanTargetDb:       scanTargetDb,
-		scanResultDb:       scanResultDb,
-		activeServerID:     cfg.ActiveServer,
+		runtimeServer:      cfg.RuntimeServer,
+		exchangeMarket:     cfg.ExchangeTarget.Market,
 		categoryIndex:      0,
 		jumpZoneList:       []string{},
 	}

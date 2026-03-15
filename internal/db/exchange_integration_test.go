@@ -159,6 +159,75 @@ func TestMarkSoldOutScopesToCategoryServerZone(t *testing.T) {
 	}
 }
 
+func TestReplaceTargetedRecordsReplacesCurrentRows(t *testing.T) {
+	testDB := openTestDatabase(t)
+	edb := NewExchangeDb(testDB)
+	seenAt := time.Now().UTC().Truncate(time.Second)
+
+	first := []*ExchangeItemRecord{
+		{
+			IdentityKey:  "targeted|1",
+			ItemID:       40633,
+			Name:         "Staff of Element Fusion [1]",
+			CategoryID:   0,
+			Server:       "sea_mp",
+			Zone:         "",
+			Price:        7176342,
+			ListingCount: 2,
+			InStock:      true,
+			LastSeenAt:   seenAt,
+		},
+	}
+	if err := edb.ReplaceTargetedRecords(40633, "sea_mp", first); err != nil {
+		t.Fatalf("ReplaceTargetedRecords(first) error = %v", err)
+	}
+
+	second := []*ExchangeItemRecord{
+		{
+			IdentityKey:  "targeted|2",
+			ItemID:       40633,
+			Name:         "Staff of Element Fusion [1]",
+			CategoryID:   0,
+			Server:       "sea_mp",
+			Zone:         "",
+			Price:        8000000,
+			ListingCount: 1,
+			InStock:      true,
+			LastSeenAt:   seenAt.Add(time.Minute),
+		},
+	}
+	if err := edb.ReplaceTargetedRecords(40633, "sea_mp", second); err != nil {
+		t.Fatalf("ReplaceTargetedRecords(second) error = %v", err)
+	}
+
+	rows, err := testDB.Query(`
+		SELECT identity_key, price, listing_count
+		FROM exchange_items
+		WHERE item_id = 40633 AND server = 'sea_mp' AND category_id = 0
+	`)
+	if err != nil {
+		t.Fatalf("query targeted exchange rows: %v", err)
+	}
+	defer rows.Close()
+
+	count := 0
+	for rows.Next() {
+		count++
+		var identityKey string
+		var price int64
+		var listingCount int
+		if err := rows.Scan(&identityKey, &price, &listingCount); err != nil {
+			t.Fatalf("scan targeted exchange row: %v", err)
+		}
+		if identityKey != "targeted|2" || price != 8000000 || listingCount != 1 {
+			t.Fatalf("unexpected targeted row: %q %d %d", identityKey, price, listingCount)
+		}
+	}
+	if count != 1 {
+		t.Fatalf("targeted exchange row count = %d, want 1", count)
+	}
+}
+
 func openTestDatabase(t *testing.T) *DB {
 	t.Helper()
 

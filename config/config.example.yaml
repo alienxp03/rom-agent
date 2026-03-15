@@ -3,7 +3,16 @@
 # Shared database settings live in config/database.example.yaml.
 
 # Game server configuration
-active_server: "sea_el"  # romhandbook short name, e.g. sea_el, eu_el, rom_classic
+runtime_server: "sea_mp"  # Runtime login/server identity for this process
+exchange_target:
+  market: "sea_shared"  # Canonical market key used for target selection and persistence
+exchange_market_aliases:
+  sea_el: "sea_shared"
+  sea_mp: "sea_shared"
+  sea_mof: "sea_mof"
+  sea_vg: "sea_vg"
+  eu_el: "eu_el"
+  rom_classic: "rom_classic"
 lang: 10  # 10 = English
 app_pre_version: 60
 client_version: -1  # -1 = use blueberry version
@@ -11,6 +20,10 @@ plat: 96  # Platform number
 client_code: 62  # Client code
 auth_base_url: "https://sea-prod-auth.ro.com"  # GL: na-prod-auth.ro.com, SEA: sea-prod-auth.ro.com
 game_linegroup: 1  # Server identifier
+exchange_thing_snapshot_refresh_interval: "12h"
+exchange_target_refresh_interval: "5m"
+exchange_low_result_threshold: 10
+exchange_low_result_backoff: "10m"
 
 # Client configurations
 clients:

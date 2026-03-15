@@ -250,10 +250,16 @@ func (b *Bot) mainLoop(ctx context.Context, clientCfg *config.Client, mvpJumpZon
 		}
 
 		// Wait before starting next exchange cycle
-		// Default 30 minutes between full scans to avoid spamming
-		exchangeCycleDelay := 30 * time.Minute
+		exchangeCycleDelay := 5 * time.Minute
+		if b.scanTargetDb != nil {
+			exchangeCycleDelay = b.clientConfig.ExchangeTargetRefreshInterval()
+			if b.lastExchangeRecordCount < b.clientConfig.ExchangeLowResultThresholdValue() {
+				exchangeCycleDelay = b.clientConfig.ExchangeLowResultBackoffInterval()
+			}
+		}
 		slog.Info("Exchange cycle completed, waiting before next cycle",
-			"delay_minutes", int(exchangeCycleDelay.Minutes()))
+			"delay_minutes", int(exchangeCycleDelay.Minutes()),
+			"record_count", b.lastExchangeRecordCount)
 
 		select {
 		case <-ctx.Done():

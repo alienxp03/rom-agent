@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -15,172 +14,26 @@ import (
 	"github.com/alienxp03/rom-agent/internal/resources"
 )
 
-// doExchange implements the exchange scraping logic
 func (b *Bot) doExchange(ctx context.Context) error {
-	if b.scanTargetDb != nil && b.scanResultDb != nil && b.activeServerID != "" {
-		return b.doTargetedExchange(ctx)
+	if b.scanTargetDb == nil {
+		return fmt.Errorf("targeted exchange requires scan target store")
 	}
-
-	startTime := time.Now()
-	slog.Info("Exchange scraping started",
-		"start_time", startTime.Format("2006-01-02 @ 3:04:05 PM"))
-
-	for ; b.categoryIndex < len(b.exchangeCategories); b.categoryIndex++ {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-		}
-
-		categoryStartTime := time.Now()
-		category := b.exchangeCategories[b.categoryIndex]
-		categorySeenAt := time.Now().UTC()
-		categoryTs := categorySeenAt.UnixMilli()
-
-		slog.Info("Processing category",
-			"category", category.Name,
-			"index", b.categoryIndex+1,
-			"total", len(b.exchangeCategories))
-
-		// Query all items in this category
-		categoryData, err := b.gameClient.QueryExchangeCategory(ctx, category)
-		if err != nil {
-			slog.Error("Failed to query category",
-				"category", category.Name,
-				"error", err)
-			continue
-		}
-
-		itemList := exchangeCategorySnappingItemIDs(categoryData)
-		snappingCount := len(categoryData.GetPubLists())
-
-		slog.Info("Category items",
-			"category", category.Name,
-			"category_id", category.ID,
-			"item_count", len(categoryData.GetPubLists())+len(categoryData.GetLists()),
-			"snapping_item_count", snappingCount,
-			"regular_item_count", len(categoryData.GetLists()),
-			"queried_item_count", len(itemList))
-
-		// Process each item
-		for _, itemId := range itemList {
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			default:
-			}
-
-			slog.Debug("Exchange item fetch started",
-				"category", category.Name,
-				"category_id", category.ID,
-				"item_id", itemId)
-
-			// Query all listings for this item
-			records, err := b.gameClient.QueryExchangeItem(ctx, itemId, category)
-			if err != nil {
-				slog.Error("Failed to query item",
-					"item_id", itemId,
-					"category", category.Name,
-					"error", err)
-				continue
-			}
-			records = exchangeSnappingRecords(records)
-
-			isSnapping := false
-			for _, record := range records {
-				if record != nil && record.BaseInfo != nil && record.BaseInfo.GetEndTime() > 0 {
-					isSnapping = true
-					break
-				}
-			}
-
-			if b.exchangeDb != nil {
-				persistedRecords := make([]*db.ExchangeItemRecord, 0, len(records))
-				for _, record := range records {
-					persistedRecords = append(persistedRecords, buildExchangeDBRecord(record, category, b.server, b.zone, categorySeenAt))
-				}
-				if err := b.exchangeDb.UpsertLatestRecords(persistedRecords); err != nil {
-					slog.Error("Failed to persist exchange item records",
-						"category", category.Name,
-						"category_id", category.ID,
-						"item_id", itemId,
-						"server", b.server,
-						"zone", b.zone,
-						"error", err)
-				}
-			}
-
-			for _, record := range records {
-				slog.Info(formatExchangeRecord(record, itemId))
-			}
-
-			slog.Debug("Exchange item fetch completed",
-				"category", category.Name,
-				"category_id", category.ID,
-				"item_id", itemId,
-				"record_count", len(records),
-				"is_snapping", isSnapping)
-		}
-
-		if b.exchangeDb != nil {
-			soldOutCount, err := b.exchangeDb.MarkSoldOut(category, b.server, b.zone, categorySeenAt)
-			if err != nil {
-				slog.Warn("Failed to mark exchange items as out of stock",
-					"category", category.Name,
-					"category_id", category.ID,
-					"server", b.server,
-					"zone", b.zone,
-					"error", err)
-			} else {
-				slog.Info("Marked exchange items as out of stock",
-					"category", category.Name,
-					"category_id", category.ID,
-					"server", b.server,
-					"zone", b.zone,
-					"count", soldOutCount)
-			}
-		}
-		_ = categoryTs
-
-		categoryDuration := time.Since(categoryStartTime)
-		slog.Info("Category completed",
-			"category", category.Name,
-			"duration_mins", int(categoryDuration.Minutes()),
-			"duration_secs", int(categoryDuration.Seconds())%60,
-			"end_time", time.Now().Format("2006-01-02 @ 3:04:05 PM"))
-
-		// Force garbage collection (like Java version)
-		runtime.GC()
-
-		// Save state after each category
-		if err := b.SaveState(); err != nil {
-			slog.Warn("Failed to save state", "error", err)
-		}
+	if b.exchangeMarket == "" {
+		return fmt.Errorf("targeted exchange requires exchange market")
 	}
-
-	totalDuration := time.Since(startTime)
-	slog.Info("Exchange scraping completed",
-		"end_time", time.Now().Format("2006-01-02 @ 3:04:05 PM"),
-		"total_mins", int(totalDuration.Minutes()),
-		"total_secs", int(totalDuration.Seconds())%60)
-
-	// Reset category index for next cycle
-	b.categoryIndex = 0
-	return nil
-}
-
-func (b *Bot) doTargetedExchange(ctx context.Context) error {
 	startTime := time.Now()
-	targets, err := b.scanTargetDb.ListActiveByServer(b.activeServerID)
+	targets, err := b.scanTargetDb.ListActiveByMarket(b.exchangeMarket, b.clientConfig.ExchangeMarketAliases)
 	if err != nil {
-		return fmt.Errorf("load scan targets for %s: %w", b.activeServerID, err)
+		return fmt.Errorf("load scan targets for market %s: %w", b.exchangeMarket, err)
 	}
 
-	slog.Info("Exchange scraping started (targeted mode)",
-		"active_server", b.activeServerID,
+	slog.Info("Exchange scraping started",
+		"runtime_server", b.runtimeServer,
+		"exchange_market", b.exchangeMarket,
 		"target_count", len(targets),
 		"start_time", startTime.Format("2006-01-02 @ 3:04:05 PM"))
 
+	totalRecordCount := 0
 	for _, target := range targets {
 		select {
 		case <-ctx.Done():
@@ -191,162 +44,75 @@ func (b *Bot) doTargetedExchange(ctx context.Context) error {
 		records, err := b.gameClient.QueryExchangeItem(ctx, int(target.ThingID), resources.ExchangeCategory{})
 		if err != nil {
 			slog.Error("Failed to query target item",
-				"active_server", b.activeServerID,
+				"runtime_server", b.runtimeServer,
+				"exchange_market", b.exchangeMarket,
 				"thing_id", target.ThingID,
-				"projection_signature", target.ProjectionSignature,
 				"error", err)
 			continue
 		}
 
-		filtered := filterExchangeRecordsForTarget(records, target)
-		persisted := make([]*db.ScanResultRecord, 0, len(filtered))
-		seenAt := time.Now().UTC()
-		for _, record := range filtered {
-			persisted = append(persisted, buildScanResultRecord(record, target, seenAt))
-			slog.Info(formatExchangeRecord(record, int(target.ThingID)))
-		}
-
-		if err := b.scanResultDb.ReplaceForTarget(target, persisted); err != nil {
-			slog.Error("Failed to persist target scan results",
-				"active_server", b.activeServerID,
+		snappingRecords := exchangeSnappingRecords(records)
+		filtered := filterExchangeRecordsForTarget(snappingRecords, target)
+		slog.Info("Target exchange filtering completed",
+			"exchange_market", b.exchangeMarket,
+			"thing_id", target.ThingID,
+			"target_equip_type", target.EquipType,
+			"target_broken_state", target.BrokenState,
+			"target_refine_min", intValue(target.RefineMin),
+			"target_refine_max", intValue(target.RefineMax),
+			"target_enchant_ids", target.EnchantIDs,
+			"raw_record_count", len(records),
+			"snapping_record_count", len(snappingRecords),
+			"filtered_record_count", len(filtered),
+			"target_snap_count", target.SnapCount)
+		for i, record := range snappingRecords {
+			slog.Debug("Snapping record candidate",
+				"exchange_market", b.exchangeMarket,
 				"thing_id", target.ThingID,
-				"projection_signature", target.ProjectionSignature,
+				"candidate_index", i,
+				"price", record.BaseInfo.GetPrice(),
+				"count", record.BaseInfo.GetCount(),
+				"end_time", record.BaseInfo.GetEndTime(),
+				"refine_level", exchangeRefineLevel(record),
+				"is_broken", exchangeBrokenState(record),
+				"buff_id", intValue(exchangeBuffID(record)))
+		}
+		seenAt := time.Now().UTC()
+		persisted := make([]*db.ExchangeItemRecord, 0, len(filtered))
+		for _, record := range filtered {
+			persisted = append(persisted, buildExchangeDBRecord(record, resources.ExchangeCategory{}, b.exchangeMarket, "", seenAt, b.thingSnapshotStore, b.exchangeDb))
+			slog.Info(formatExchangeRecord(record, int(target.ThingID), b.thingSnapshotStore, b.exchangeDb))
+		}
+		totalRecordCount += len(filtered)
+
+		if b.exchangeDb == nil {
+			slog.Warn("Skipping targeted exchange persistence because exchange store is not configured",
+				"exchange_market", b.exchangeMarket,
+				"thing_id", target.ThingID)
+			continue
+		}
+		if err := b.exchangeDb.ReplaceTargetedRecords(int(target.ThingID), b.exchangeMarket, persisted); err != nil {
+			slog.Error("Failed to persist targeted exchange item records",
+				"exchange_market", b.exchangeMarket,
+				"thing_id", target.ThingID,
 				"error", err)
 			continue
 		}
 
 		slog.Info("Target scan completed",
-			"active_server", b.activeServerID,
+			"exchange_market", b.exchangeMarket,
 			"thing_id", target.ThingID,
-			"projection_signature", target.ProjectionSignature,
 			"matched_records", len(filtered),
 			"target_snap_count", target.SnapCount)
 	}
 
 	totalDuration := time.Since(startTime)
-	slog.Info("Exchange scraping completed (targeted mode)",
-		"active_server", b.activeServerID,
+	b.lastExchangeRecordCount = totalRecordCount
+	slog.Info("Exchange scraping completed",
+		"exchange_market", b.exchangeMarket,
+		"record_count", totalRecordCount,
 		"total_mins", int(totalDuration.Minutes()),
 		"total_secs", int(totalDuration.Seconds())%60)
-	return nil
-}
-
-// doExchange2 implements optimized exchange scraping for selected items only
-func (b *Bot) doExchange2(ctx context.Context, targetItemIds []int) error {
-	startTime := time.Now()
-	slog.Info("Exchange scraping started (selective mode)",
-		"start_time", startTime.Format("2006-01-02 @ 3:04:05 PM"),
-		"target_items", len(targetItemIds))
-
-	targetItemSet := make(map[int]bool, len(targetItemIds))
-	for _, itemId := range targetItemIds {
-		targetItemSet[itemId] = true
-	}
-
-	for ; b.categoryIndex < len(b.exchangeCategories); b.categoryIndex++ {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-		}
-
-		categoryStartTime := time.Now()
-		category := b.exchangeCategories[b.categoryIndex]
-		categorySeenAt := time.Now().UTC()
-		categoryTs := categorySeenAt.UnixMilli()
-
-		// Query category
-		categoryData, err := b.gameClient.QueryExchangeCategory(ctx, category)
-		if err != nil {
-			slog.Error("Failed to query category",
-				"category", category.Name,
-				"error", err)
-			continue
-		}
-
-		itemList := exchangeCategorySnappingItemIDs(categoryData)
-
-		// Filter items against target list
-		var queryItemIds []int
-		for _, itemId := range itemList {
-			if targetItemSet[itemId] {
-				queryItemIds = append(queryItemIds, itemId)
-			}
-		}
-
-		if len(queryItemIds) == 0 {
-			slog.Info("No target items in category",
-				"category", category.Name)
-			continue
-		}
-
-		slog.Info("Processing category (selective)",
-			"category", category.Name,
-			"category_id", category.ID,
-			"matched_items", len(queryItemIds),
-			"total_items", len(itemList))
-
-		// Process matched items (same as doExchange)
-		for _, itemId := range queryItemIds {
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			default:
-			}
-
-			records, err := b.gameClient.QueryExchangeItem(ctx, itemId, category)
-			if err != nil {
-				slog.Error("Failed to query item",
-					"item_id", itemId,
-					"error", err)
-				continue
-			}
-			records = exchangeSnappingRecords(records)
-
-			if b.exchangeDb != nil {
-				persistedRecords := make([]*db.ExchangeItemRecord, 0, len(records))
-				for _, record := range records {
-					persistedRecords = append(persistedRecords, buildExchangeDBRecord(record, category, b.server, b.zone, categorySeenAt))
-				}
-				if err := b.exchangeDb.UpsertLatestRecords(persistedRecords); err != nil {
-					slog.Error("Failed to persist selective exchange item records",
-						"category", category.Name,
-						"category_id", category.ID,
-						"item_id", itemId,
-						"server", b.server,
-						"zone", b.zone,
-						"error", err)
-				}
-			}
-
-			for _, record := range records {
-				slog.Info(formatExchangeRecord(record, itemId))
-			}
-		}
-
-		// Selective mode is not a full category snapshot, so it must not mark
-		// unseen variants as out of stock.
-		_ = categoryTs
-
-		categoryDuration := time.Since(categoryStartTime)
-		slog.Info("Category completed",
-			"category", category.Name,
-			"duration_mins", int(categoryDuration.Minutes()),
-			"duration_secs", int(categoryDuration.Seconds())%60)
-
-		runtime.GC()
-
-		if err := b.SaveState(); err != nil {
-			slog.Warn("Failed to save state", "error", err)
-		}
-	}
-
-	totalDuration := time.Since(startTime)
-	slog.Info("Exchange scraping completed (selective)",
-		"total_mins", int(totalDuration.Minutes()),
-		"total_secs", int(totalDuration.Seconds())%60)
-
-	b.categoryIndex = 0
 	return nil
 }
 
@@ -385,24 +151,34 @@ func exchangeSnappingRecords(records []*client.ExchangeItemRecord) []*client.Exc
 	trimmed := make([]*client.ExchangeItemRecord, 0, len(records))
 	for _, record := range records {
 		if record == nil || record.BaseInfo == nil || record.BaseInfo.GetEndTime() == 0 {
-			break
+			continue
 		}
 		trimmed = append(trimmed, record)
 	}
 	return trimmed
 }
 
-func exchangeItemName(record *client.ExchangeItemRecord) string {
+func exchangeItemName(record *client.ExchangeItemRecord, thingSnapshotStore *db.ExchangeThingSnapshotStore, exchangeDb *db.ExchangeDb) string {
 	if record == nil || record.BaseInfo == nil {
 		return ""
 	}
-	if name := resources.LookupItemName(int(record.BaseInfo.GetItemid())); name != "" {
-		return name
+	itemID := int(record.BaseInfo.GetItemid())
+
+	if thingSnapshotStore != nil {
+		if name := thingSnapshotStore.GetName(itemID); name != "" {
+			return name
+		}
 	}
-	if name := record.BaseInfo.GetName(); name != "" {
-		return name
+
+	// Fall back to names captured from previous exchange rows.
+	if exchangeDb != nil {
+		if name := exchangeDb.GetItemName(itemID); name != "" {
+			return name
+		}
 	}
-	return ""
+
+	// Fallback to item:<id> format rather than using seller name
+	return fmt.Sprintf("item:%d", itemID)
 }
 
 func exchangeStartTimeISO(record *client.ExchangeItemRecord) string {
@@ -453,13 +229,13 @@ func formatNumber(value uint64) string {
 	return string(out)
 }
 
-func formatExchangeRecord(record *client.ExchangeItemRecord, requestedItemID int) string {
+func formatExchangeRecord(record *client.ExchangeItemRecord, requestedItemID int, thingSnapshotStore *db.ExchangeThingSnapshotStore, exchangeDb *db.ExchangeDb) string {
 	if record == nil || record.BaseInfo == nil {
 		return fmt.Sprintf("%d: <missing record>", requestedItemID)
 	}
 
 	baseInfo := record.BaseInfo
-	name := exchangeItemName(record)
+	name := exchangeItemName(record, thingSnapshotStore, exchangeDb)
 	if name == "" {
 		name = "<unknown item>"
 	}
@@ -496,13 +272,15 @@ func buildExchangeDBRecord(
 	server string,
 	zone string,
 	seenAt time.Time,
+	thingSnapshotStore *db.ExchangeThingSnapshotStore,
+	exchangeDb *db.ExchangeDb,
 ) *db.ExchangeItemRecord {
 	if record == nil || record.BaseInfo == nil {
 		return nil
 	}
 
 	baseInfo := record.BaseInfo
-	name := exchangeItemName(record)
+	name := exchangeItemName(record, thingSnapshotStore, exchangeDb)
 	if name == "" {
 		name = fmt.Sprintf("item:%d", baseInfo.GetItemid())
 	}
@@ -727,55 +505,4 @@ func exchangeRecordMatchesTarget(record *client.ExchangeItemRecord, target *db.S
 	}
 
 	return true
-}
-
-func buildScanResultRecord(record *client.ExchangeItemRecord, target *db.ScanTarget, seenAt time.Time) *db.ScanResultRecord {
-	if record == nil || record.BaseInfo == nil || target == nil {
-		return nil
-	}
-
-	baseInfo := record.BaseInfo
-	buffID := exchangeBuffID(record)
-	enchantLevel := 0
-
-	var snapEndAt *time.Time
-	if endTime := baseInfo.GetEndTime(); endTime > 0 {
-		t := time.Unix(int64(endTime), 0).UTC()
-		snapEndAt = &t
-	}
-
-	return &db.ScanResultRecord{
-		RecordID:            scanResultRecordID(record),
-		ThingID:             int64(baseInfo.GetItemid()),
-		Price:               int64(baseInfo.GetPrice()),
-		StockCount:          int(baseInfo.GetCount()),
-		RefineLevel:         exchangeRefineLevel(record),
-		Enchant:             buffID,
-		EnchantLevel:        enchantLevel,
-		Broken:              exchangeBrokenState(record),
-		SnapAt:              seenAt,
-		SnapEndAt:           snapEndAt,
-		ProjectionSignature: target.ProjectionSignature,
-		SnapIDs:             target.SnapIDs,
-	}
-}
-
-func scanResultRecordID(record *client.ExchangeItemRecord) string {
-	if record == nil || record.BaseInfo == nil {
-		return ""
-	}
-
-	baseInfo := record.BaseInfo
-	switch {
-	case baseInfo.GetGuid() != "":
-		return baseInfo.GetGuid()
-	case baseInfo.GetKey() != "":
-		return baseInfo.GetKey()
-	case baseInfo.GetOrderId() > 0:
-		return fmt.Sprintf("order:%d", baseInfo.GetOrderId())
-	case baseInfo.GetPublicityId() > 0:
-		return fmt.Sprintf("publicity:%d", baseInfo.GetPublicityId())
-	default:
-		return fmt.Sprintf("item:%d:end:%d:price:%d:count:%d", baseInfo.GetItemid(), baseInfo.GetEndTime(), baseInfo.GetPrice(), baseInfo.GetCount())
-	}
 }

@@ -3,6 +3,10 @@ package db
 import (
 	"database/sql"
 	"fmt"
+	"log/slog"
+	"sort"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/lib/pq"
@@ -41,11 +45,14 @@ func NewScanTargetStore(db *DB) *ScanTargetStore {
 	return &ScanTargetStore{db: db}
 }
 
-func (s *ScanTargetStore) ListActiveByServer(server string) ([]*ScanTarget, error) {
-	serverID, ok := scanTargetServerIDs[server]
-	if !ok {
-		return nil, fmt.Errorf("unsupported scan target server %q", server)
+func (s *ScanTargetStore) ListActiveByMarket(market string, marketAliases map[string]string) ([]*ScanTarget, error) {
+	serverIDs := scanTargetServerIDsForMarket(market, marketAliases)
+	if len(serverIDs) == 0 {
+		return nil, fmt.Errorf("no scan target servers configured for market %q", market)
 	}
+	slog.Info("Resolved exchange market to scan target servers",
+		"exchange_market", market,
+		"server_ids", serverIDs)
 
 	rows, err := s.db.Query(`
 		SELECT
@@ -54,11 +61,11 @@ func (s *ScanTargetStore) ListActiveByServer(server string) ([]*ScanTarget, erro
 			projected_at, deactivated_at
 		FROM scan_targets
 		WHERE active = TRUE
-		  AND server = $1
+		  AND server = ANY($1)
 		ORDER BY thing_id ASC
-	`, serverID)
+	`, pq.Array(serverIDs))
 	if err != nil {
-		return nil, fmt.Errorf("query active scan targets for %s: %w", server, err)
+		return nil, fmt.Errorf("query active scan targets for market %s: %w", market, err)
 	}
 	defer rows.Close()
 
@@ -71,9 +78,14 @@ func (s *ScanTargetStore) ListActiveByServer(server string) ([]*ScanTarget, erro
 		targets = append(targets, target)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate active scan targets for %s: %w", server, err)
+		return nil, fmt.Errorf("iterate active scan targets for market %s: %w", market, err)
 	}
-	return targets, nil
+	merged := mergeScanTargetsByMarket(targets, market)
+	slog.Info("Loaded active scan targets for market",
+		"exchange_market", market,
+		"raw_target_count", len(targets),
+		"merged_target_count", len(merged))
+	return merged, nil
 }
 
 func scanTargetRow(scanner interface {
@@ -160,4 +172,107 @@ func nullableInt(v sql.NullInt64) *int {
 	}
 	value := int(v.Int64)
 	return &value
+}
+
+func scanTargetServerIDsForMarket(market string, marketAliases map[string]string) []int {
+	serverIDs := make([]int, 0, len(scanTargetServerIDs))
+	for server, id := range scanTargetServerIDs {
+		resolvedMarket := server
+		if alias, ok := marketAliases[server]; ok && alias != "" {
+			resolvedMarket = alias
+		}
+		if resolvedMarket == market {
+			serverIDs = append(serverIDs, id)
+		}
+	}
+	sort.Ints(serverIDs)
+	return serverIDs
+}
+
+func mergeScanTargetsByMarket(targets []*ScanTarget, market string) []*ScanTarget {
+	if len(targets) == 0 {
+		return nil
+	}
+
+	mergedByKey := make(map[string]*ScanTarget, len(targets))
+	order := make([]string, 0, len(targets))
+	for _, target := range targets {
+		if target == nil {
+			continue
+		}
+
+		key := scanTargetMergeKey(target)
+		existing, ok := mergedByKey[key]
+		if !ok {
+			copyTarget := *target
+			copyTarget.Server = market
+			copyTarget.EnchantIDs = append([]int(nil), target.EnchantIDs...)
+			copyTarget.SnapIDs = append([]int64(nil), target.SnapIDs...)
+			mergedByKey[key] = &copyTarget
+			order = append(order, key)
+			continue
+		}
+
+		existing.SnapCount += target.SnapCount
+		existing.SnapIDs = mergeInt64Slices(existing.SnapIDs, target.SnapIDs)
+	}
+
+	merged := make([]*ScanTarget, 0, len(order))
+	for _, key := range order {
+		merged = append(merged, mergedByKey[key])
+	}
+	return merged
+}
+
+func scanTargetMergeKey(target *ScanTarget) string {
+	return strings.Join([]string{
+		strconv.FormatInt(target.ThingID, 10),
+		target.EquipType,
+		target.BrokenState,
+		intPtrString(target.RefineMin),
+		intPtrString(target.RefineMax),
+		intSliceString(target.EnchantIDs),
+	}, "|")
+}
+
+func intPtrString(value *int) string {
+	if value == nil {
+		return ""
+	}
+	return strconv.Itoa(*value)
+}
+
+func intSliceString(values []int) string {
+	if len(values) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(values))
+	for _, value := range values {
+		parts = append(parts, strconv.Itoa(value))
+	}
+	return strings.Join(parts, ",")
+}
+
+func mergeInt64Slices(left, right []int64) []int64 {
+	if len(right) == 0 {
+		return left
+	}
+
+	seen := make(map[int64]struct{}, len(left)+len(right))
+	merged := make([]int64, 0, len(left)+len(right))
+	for _, value := range left {
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		merged = append(merged, value)
+	}
+	for _, value := range right {
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		merged = append(merged, value)
+	}
+	return merged
 }

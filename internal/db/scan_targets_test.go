@@ -7,7 +7,7 @@ import (
 	"github.com/lib/pq"
 )
 
-func TestScanTargetStoreListActiveByServer(t *testing.T) {
+func TestScanTargetStoreListActiveByMarket(t *testing.T) {
 	testDB := openTestDatabase(t)
 	mustExecScanTargetsDDL(t, testDB)
 
@@ -18,24 +18,28 @@ func TestScanTargetStoreListActiveByServer(t *testing.T) {
 			enchant_ids, snap_ids, snap_count, active, projection_signature, projected_at
 		) VALUES
 			(501, 0, 1, 2, 5, 10, $1, $2, 2, TRUE, 'sea_el:501', $3),
+			(501, 1, 1, 2, 5, 10, $1, $8, 1, TRUE, 'sea_mp:501', $3),
 			(502, 5, 0, 0, NULL, NULL, $4, $5, 1, TRUE, 'rom_classic:502', $3),
 			(503, 0, 0, 0, NULL, NULL, $6, $7, 1, FALSE, 'sea_el:503', $3)
-	`, pq.Array([]int{500041, 500011}), pq.Array([]int64{1001, 1002}), projectedAt, pq.Array([]int{}), pq.Array([]int64{1003}), pq.Array([]int{}), pq.Array([]int64{1004}))
+	`, pq.Array([]int{500041, 500011}), pq.Array([]int64{1001, 1002}), projectedAt, pq.Array([]int{}), pq.Array([]int64{1003}), pq.Array([]int{}), pq.Array([]int64{1004}), pq.Array([]int64{1005}))
 	if err != nil {
 		t.Fatalf("insert scan_targets rows: %v", err)
 	}
 
 	store := NewScanTargetStore(testDB)
-	targets, err := store.ListActiveByServer("sea_el")
+	targets, err := store.ListActiveByMarket("sea_shared", map[string]string{
+		"sea_el": "sea_shared",
+		"sea_mp": "sea_shared",
+	})
 	if err != nil {
-		t.Fatalf("ListActiveByServer() error = %v", err)
+		t.Fatalf("ListActiveByMarket() error = %v", err)
 	}
 	if len(targets) != 1 {
-		t.Fatalf("len(ListActiveByServer()) = %d, want 1", len(targets))
+		t.Fatalf("len(ListActiveByMarket()) = %d, want 1", len(targets))
 	}
 
 	got := targets[0]
-	if got.ThingID != 501 || got.Server != "sea_el" {
+	if got.ThingID != 501 || got.Server != "sea_shared" {
 		t.Fatalf("unexpected target identity: %#v", got)
 	}
 	if got.EquipType != "equip" || got.BrokenState != "non_broken" {
@@ -47,73 +51,11 @@ func TestScanTargetStoreListActiveByServer(t *testing.T) {
 	if len(got.EnchantIDs) != 2 || got.EnchantIDs[0] != 500041 || got.EnchantIDs[1] != 500011 {
 		t.Fatalf("unexpected enchant ids: %#v", got.EnchantIDs)
 	}
-}
-
-func TestScanResultStoreReplaceForTarget(t *testing.T) {
-	testDB := openTestDatabase(t)
-
-	store := NewScanResultStore(testDB)
-	target := &ScanTarget{
-		ThingID:             501,
-		ProjectionSignature: "sea_el:501",
-		SnapIDs:             []int64{1001, 1002},
+	if got.SnapCount != 3 {
+		t.Fatalf("unexpected snap count: %d", got.SnapCount)
 	}
-	now := time.Now().UTC().Truncate(time.Second)
-
-	first := []*ScanResultRecord{
-		{
-			RecordID:            "order:1",
-			ThingID:             501,
-			Price:               1000,
-			StockCount:          2,
-			RefineLevel:         5,
-			SnapAt:              now,
-			ProjectionSignature: target.ProjectionSignature,
-			SnapIDs:             target.SnapIDs,
-		},
-	}
-	if err := store.ReplaceForTarget(target, first); err != nil {
-		t.Fatalf("ReplaceForTarget(first) error = %v", err)
-	}
-
-	second := []*ScanResultRecord{
-		{
-			RecordID:            "order:2",
-			ThingID:             501,
-			Price:               2000,
-			StockCount:          1,
-			RefineLevel:         8,
-			SnapAt:              now.Add(time.Minute),
-			ProjectionSignature: target.ProjectionSignature,
-			SnapIDs:             target.SnapIDs,
-		},
-	}
-	if err := store.ReplaceForTarget(target, second); err != nil {
-		t.Fatalf("ReplaceForTarget(second) error = %v", err)
-	}
-
-	rows, err := testDB.Query(`SELECT record_id, price, stock_count, refine_level FROM scan_results WHERE thing_id = $1`, target.ThingID)
-	if err != nil {
-		t.Fatalf("query scan_results: %v", err)
-	}
-	defer rows.Close()
-
-	count := 0
-	for rows.Next() {
-		count++
-		var recordID string
-		var price int64
-		var stockCount int
-		var refineLevel int
-		if err := rows.Scan(&recordID, &price, &stockCount, &refineLevel); err != nil {
-			t.Fatalf("scan scan_results row: %v", err)
-		}
-		if recordID != "order:2" || price != 2000 || stockCount != 1 || refineLevel != 8 {
-			t.Fatalf("unexpected stored row: %q %d %d %d", recordID, price, stockCount, refineLevel)
-		}
-	}
-	if count != 1 {
-		t.Fatalf("scan_results row count = %d, want 1", count)
+	if len(got.SnapIDs) != 3 {
+		t.Fatalf("unexpected snap ids: %#v", got.SnapIDs)
 	}
 }
 

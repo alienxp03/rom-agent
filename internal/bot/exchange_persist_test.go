@@ -56,7 +56,7 @@ func TestBuildExchangeDBRecordExtractsVariantFields(t *testing.T) {
 	}
 
 	seenAt := time.Unix(1000, 0).UTC()
-	got := buildExchangeDBRecord(record, resources.Material, "SEA2", "4201", seenAt)
+	got := buildExchangeDBRecord(record, resources.Material, "SEA2", "4201", seenAt, nil, nil)
 
 	if got == nil {
 		t.Fatal("buildExchangeDBRecord() returned nil")
@@ -136,10 +136,10 @@ func TestExchangeSnappingRecords(t *testing.T) {
 	}
 
 	got := exchangeSnappingRecords(records)
-	if len(got) != 2 {
-		t.Fatalf("len(exchangeSnappingRecords()) = %d, want 2", len(got))
+	if len(got) != 3 {
+		t.Fatalf("len(exchangeSnappingRecords()) = %d, want 3", len(got))
 	}
-	for i, want := range []uint32{endTime1, endTime2} {
+	for i, want := range []uint32{endTime1, endTime2, endTime2} {
 		if got[i].BaseInfo.GetEndTime() != want {
 			t.Fatalf("exchangeSnappingRecords()[%d] end_time = %d, want %d", i, got[i].BaseInfo.GetEndTime(), want)
 		}
@@ -211,55 +211,53 @@ func TestFilterExchangeRecordsForTarget(t *testing.T) {
 	}
 }
 
-func TestBuildScanResultRecord(t *testing.T) {
-	itemID := uint32(1001)
-	price := uint64(320000)
-	count := uint32(2)
+func TestTargetedFilteringUsesOnlySnappingRecords(t *testing.T) {
+	itemID := uint32(40633)
+	snappingPrice := uint64(674766)
+	regularPrice := uint64(7155026)
+	count := uint32(5)
 	endTime := uint32(123456)
-	orderID := uint64(99)
-	refine := uint32(7)
-	buffID := uint32(88)
+	refine := uint32(0)
+	damage := false
 
-	record := &client.ExchangeItemRecord{
+	snapping := &client.ExchangeItemRecord{
 		BaseInfo: &pb.TradeItemBaseInfo{
 			Itemid:  &itemID,
-			Price:   &price,
+			Price:   &snappingPrice,
 			Count:   &count,
 			EndTime: &endTime,
-			OrderId: &orderID,
 		},
 		ItemData: &pb.ItemData{
 			Equip: &pb.EquipData{
 				Refinelv: &refine,
+				Damage:   &damage,
 			},
-			Enchant: &pb.EnchantData{
-				Extras: []*pb.EnchantExtra{
-					{Buffid: &buffID},
-				},
+		},
+	}
+	regular := &client.ExchangeItemRecord{
+		BaseInfo: &pb.TradeItemBaseInfo{
+			Itemid: &itemID,
+			Price:  &regularPrice,
+			Count:  &count,
+		},
+		ItemData: &pb.ItemData{
+			Equip: &pb.EquipData{
+				Refinelv: &refine,
+				Damage:   &damage,
 			},
 		},
 	}
 	target := &db.ScanTarget{
-		ThingID:             1001,
-		ProjectionSignature: "sea_el:1001",
-		SnapIDs:             []int64{1, 2},
+		ThingID:     int64(itemID),
+		EquipType:   "equip",
+		BrokenState: "non_broken",
 	}
-	seenAt := time.Unix(1000, 0).UTC()
 
-	got := buildScanResultRecord(record, target, seenAt)
-	if got == nil {
-		t.Fatal("buildScanResultRecord() returned nil")
+	got := filterExchangeRecordsForTarget(exchangeSnappingRecords([]*client.ExchangeItemRecord{regular, snapping}), target)
+	if len(got) != 1 {
+		t.Fatalf("len(filtered) = %d, want 1", len(got))
 	}
-	if got.RecordID != "order:99" {
-		t.Fatalf("RecordID = %q, want order:99", got.RecordID)
-	}
-	if got.ThingID != 1001 || got.Price != int64(price) || got.StockCount != int(count) {
-		t.Fatalf("unexpected basic fields: %#v", got)
-	}
-	if got.Enchant == nil || *got.Enchant != 88 || got.RefineLevel != 7 {
-		t.Fatalf("unexpected enchant/refine fields: %#v", got)
-	}
-	if got.SnapAt != seenAt || got.SnapEndAt == nil || got.ProjectionSignature != "sea_el:1001" {
-		t.Fatalf("unexpected timing/signature fields: %#v", got)
+	if got[0] != snapping {
+		t.Fatal("targeted filtering returned non-snapping record")
 	}
 }

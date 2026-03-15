@@ -209,6 +209,92 @@ func (edb *ExchangeDb) UpsertLatestRecords(records []*ExchangeItemRecord) error 
 	return nil
 }
 
+// ReplaceTargetedRecords replaces the targeted exchange rows for one item/server pair.
+func (edb *ExchangeDb) ReplaceTargetedRecords(itemID int, server string, records []*ExchangeItemRecord) error {
+	tx, err := edb.db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin targeted exchange replace transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(`
+		DELETE FROM exchange_items
+		WHERE item_id = $1
+		  AND server = $2
+		  AND category_id = 0
+	`, itemID, server); err != nil {
+		return fmt.Errorf("delete targeted exchange rows for item %d on %s: %w", itemID, server, err)
+	}
+
+	if len(records) == 0 {
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("commit empty targeted exchange replace: %w", err)
+		}
+		return nil
+	}
+
+	stmt, err := tx.Prepare(`
+		INSERT INTO exchange_items (
+			identity_key, item_id, name, category_id, server, zone,
+			price, quantity, listing_count, buyer_count, quota, end_time,
+			in_stock, last_seen_at, modified, refine_level, is_broken,
+			buff_id, buff_attr1_name, buff_attr1_value,
+			buff_attr2_name, buff_attr2_value,
+			buff_attr3_name, buff_attr3_value
+		) VALUES (
+			$1, $2, $3, $4, $5, $6,
+			$7, $8, $9, $10, $11, $12,
+			$13, $14, $15, $16, $17,
+			$18, $19, $20,
+			$21, $22,
+			$23, $24
+		)
+	`)
+	if err != nil {
+		return fmt.Errorf("prepare targeted exchange insert: %w", err)
+	}
+	defer stmt.Close()
+
+	for _, record := range records {
+		if record == nil {
+			continue
+		}
+		if _, err := stmt.Exec(
+			record.IdentityKey,
+			record.ItemID,
+			record.Name,
+			record.CategoryID,
+			record.Server,
+			record.Zone,
+			record.Price,
+			record.ListingCount,
+			record.ListingCount,
+			record.BuyerCount,
+			record.Quota,
+			record.EndTime,
+			record.InStock,
+			record.LastSeenAt,
+			record.Modified,
+			record.RefineLevel,
+			record.IsBroken,
+			record.BuffID,
+			record.BuffAttr1Name,
+			record.BuffAttr1Value,
+			record.BuffAttr2Name,
+			record.BuffAttr2Value,
+			record.BuffAttr3Name,
+			record.BuffAttr3Value,
+		); err != nil {
+			return fmt.Errorf("insert targeted exchange row %q: %w", record.IdentityKey, err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit targeted exchange replace: %w", err)
+	}
+	return nil
+}
+
 // MarkSoldOut marks latest-state item variants as out of stock when they were not
 // observed during the current full category snapshot.
 func (edb *ExchangeDb) MarkSoldOut(category resources.ExchangeCategory, server, zone string, seenBefore time.Time) (int, error) {
@@ -279,6 +365,25 @@ func (edb *ExchangeDb) GetItemPriceHistory(itemID int, _ int) ([]*ExchangeItemRe
 	defer rows.Close()
 
 	return scanExchangeItemRows(rows)
+}
+
+// GetItemName returns the name for an item from the exchange_items table.
+// Returns empty string if not found.
+func (edb *ExchangeDb) GetItemName(itemID int) string {
+	if edb == nil || edb.db == nil {
+		return ""
+	}
+
+	var name string
+	err := edb.db.QueryRow(`
+		SELECT name FROM exchange_items
+		WHERE item_id = $1 AND name IS NOT NULL AND name != ''
+		LIMIT 1
+	`, itemID).Scan(&name)
+	if err != nil {
+		return ""
+	}
+	return name
 }
 
 func (edb *ExchangeDb) CleanupOldRecords(days int) (int64, error) {

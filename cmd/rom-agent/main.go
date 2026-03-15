@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/alienxp03/rom-agent/internal/bot"
 	"github.com/alienxp03/rom-agent/internal/config"
@@ -86,7 +87,8 @@ func main() {
 	defer sourceDatabase.Close()
 
 	slog.Info("Connected to databases",
-		"active_server", cfg.ActiveServer,
+		"runtime_server", cfg.RuntimeServer,
+		"exchange_market", cfg.ExchangeTarget.Market,
 		"source_host", sourceDBCfg.Host,
 		"source_dbname", sourceDBCfg.DBName,
 		"result_host", resultDBCfg.Host,
@@ -112,8 +114,16 @@ func main() {
 
 	// Start bots for each enabled client
 	exchangeDB := db.NewExchangeDb(resultDatabase)
+	thingSnapshotStore := db.NewExchangeThingSnapshotStore(resultDatabase)
+	sourceThingStore := db.NewSourceThingStore(sourceDatabase)
+	thingSnapshotRefresher := db.NewExchangeThingSnapshotRefresher(sourceThingStore, thingSnapshotStore)
+	if err := refreshThingSnapshot(thingSnapshotRefresher); err != nil {
+		slog.Error("Failed to refresh exchange thing snapshot", "error", err)
+		os.Exit(1)
+	}
+	go runThingSnapshotRefreshLoop(ctx, thingSnapshotRefresher, cfg.ExchangeThingSnapshotRefreshInterval())
+
 	scanTargetDB := db.NewScanTargetStore(sourceDatabase)
-	scanResultDB := db.NewScanResultStore(resultDatabase)
 	var wg sync.WaitGroup
 	for i, client := range cfg.Clients {
 		if !client.Use {
@@ -134,8 +144,8 @@ func main() {
 			version,
 			resources.AllCategories,
 			exchangeDB,
+			thingSnapshotStore,
 			scanTargetDB,
-			scanResultDB,
 		)
 
 		// Run bot in goroutine
@@ -156,6 +166,35 @@ func main() {
 	<-ctx.Done()
 	wg.Wait()
 	slog.Info("ROM Agent stopped")
+}
+
+func refreshThingSnapshot(refresher *db.ExchangeThingSnapshotRefresher) error {
+	start := time.Now()
+	count, err := refresher.Refresh()
+	if err != nil {
+		return err
+	}
+
+	slog.Info("Exchange thing snapshot refreshed",
+		"count", count,
+		"duration_ms", time.Since(start).Milliseconds())
+	return nil
+}
+
+func runThingSnapshotRefreshLoop(ctx context.Context, refresher *db.ExchangeThingSnapshotRefresher, interval time.Duration) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if err := refreshThingSnapshot(refresher); err != nil {
+				slog.Error("Exchange thing snapshot refresh failed", "error", err)
+			}
+		}
+	}
 }
 
 func focusedExchangeConfig(cfg *config.Config) *config.Config {
