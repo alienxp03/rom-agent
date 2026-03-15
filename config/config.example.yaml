@@ -1,0 +1,52 @@
+# ROM Agent Configuration Example
+# This file is game-server specific only.
+# Shared database settings live in config/database.example.yaml.
+
+# Game server configuration
+active_server: "sea_el"  # romhandbook short name, e.g. sea_el, eu_el, rom_classic
+lang: 10  # 10 = English
+app_pre_version: 60
+client_version: -1  # -1 = use blueberry version
+plat: 96  # Platform number
+client_code: 62  # Client code
+auth_base_url: "https://sea-prod-auth.ro.com"  # GL: na-prod-auth.ro.com, SEA: sea-prod-auth.ro.com
+game_linegroup: 1  # Server identifier
+
+# Client configurations
+clients:
+  - name: "Main Character"
+    account:
+      sid: "your_sid_token_here"
+      client_id: "your_client_id_here"
+      mac_key: "your_mac_key_here"
+      device_id: "your_device_id_here"
+      sm_device_id: "your_sm_device_id_here"
+    character: ""  # Leave empty for main character
+    use: true
+    set_zone: "SEA-Valhalla-1"  # Primary zone to stay in
+    mvp_jump_zone_pattern: ""  # Regex pattern for MVP survey zones, e.g., "SEA-Valhalla-.*"
+    do_not_revive: false
+    auto_party: false
+    enable_exchange: true  # Enable exchange/market scraping
+    enable_auction: false
+    enable_boss: true  # Enable boss tracking
+    enable_pvp: false
+    enable_woe: false
+    enable_woc: false
+    enable_combat: false
+    combat:  # Combat configuration (if enable_combat is true)
+      skill_id: 1485001  # Skill ID or negative for auto skill slot
+      skill_sp_cost: 0
+      skill_target_damage: 1  # 1 = single target, -1 = AoE
+      attack_range_m: 8.5  # Attack range in meters
+      attack_speed_ms: 1050  # Delay between attacks in milliseconds
+      attack_count_per_loop: 10
+      should_target_boss: false
+      target_mob_ids: []  # Empty = attack all mobs
+      go_to_map: 0  # Map ID to teleport to, 0 = disabled
+
+  # Additional clients can be added here
+  # - name: "Alt Character"
+  #   account:
+  #     sid: "..."
+  #     ...

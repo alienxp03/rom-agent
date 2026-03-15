@@ -1,0 +1,48 @@
+# Binaries
+/rom-agent
+/bin/
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Test binary
+*.test
+
+# Output of the go coverage tool
+*.out
+
+# Go workspace file
+go.work
+
+# Configuration files with credentials
+/config/*
+!/config/database.example.yaml
+!/config/config.example.yaml
+
+# State files
+bot_state_*.json
+
+# Database files
+*.db
+*.sqlite
+
+# Logs
+*.log
+logs/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary files
+tmp/
+temp/
+docs/

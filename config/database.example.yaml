@@ -1,0 +1,15 @@
+source_database:
+  host: localhost
+  port: 5432
+  user: romhandbook_reader
+  password: your_password_here
+  dbname: romhandbook
+  sslmode: disable
+
+result_database:
+  host: localhost
+  port: 5432
+  user: rom_agent
+  password: your_password_here
+  dbname: rom_agent
+  sslmode: disable
