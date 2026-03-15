@@ -203,6 +203,13 @@ func (gc *GameClient) GetServer() string {
 	return gc.server
 }
 
+// GetCharacterName returns the resolved in-game character name.
+func (gc *GameClient) GetCharacterName() string {
+	gc.mu.RLock()
+	defer gc.mu.RUnlock()
+	return gc.charName
+}
+
 // SetServer sets the server name
 func (gc *GameClient) SetServer(server string) {
 	gc.mu.Lock()

@@ -43,8 +43,12 @@ func (b *Bot) gameLoop(ctx context.Context) error {
 
 	b.server = b.gameClient.GetServer()
 	b.zone = b.gameClient.GetZoneIdStr()
+	characterName := b.gameClient.GetCharacterName()
+	if characterName == "" {
+		characterName = clientCfg.Character
+	}
 	slog.Info("Logged in",
-		"name", clientCfg.Name,
+		"character", characterName,
 		"server", b.server,
 		"zone", b.zone)
 
