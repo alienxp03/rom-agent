@@ -242,10 +242,41 @@ func (b *Bot) mainLoop(ctx context.Context, clientCfg *config.Client, mvpJumpZon
 			exchangeIsOpen = true
 		}
 
+		runStartedAt := time.Now().UTC()
+		runID := int64(0)
+		if b.exchangeRunStore != nil {
+			startRunID, startErr := b.exchangeRunStore.Start(b.exchangeMarket, runStartedAt)
+			if startErr != nil {
+				slog.Warn("Failed to start exchange run record",
+					"exchange_market", b.exchangeMarket,
+					"error", startErr)
+			} else {
+				runID = startRunID
+			}
+		}
+
 		// Run exchange scraping
 		if err := b.doExchange(ctx); err != nil {
 			slog.Error("Exchange scraping failed", "error", err)
 			return err
+		}
+
+		if runID > 0 {
+			completedAt := time.Now().UTC()
+			durationMinutes, completeErr := b.exchangeRunStore.Complete(runID, completedAt)
+			if completeErr != nil {
+				slog.Warn("Failed to complete exchange run record",
+					"exchange_market", b.exchangeMarket,
+					"run_id", runID,
+					"error", completeErr)
+			} else {
+				slog.Info("Exchange run recorded",
+					"exchange_market", b.exchangeMarket,
+					"run_id", runID,
+					"started_at", runStartedAt,
+					"completed_at", completedAt,
+					"duration_minutes", durationMinutes)
+			}
 		}
 
 		// Save state after completing exchange

@@ -30,6 +30,7 @@ type Bot struct {
 
 	// Databases
 	exchangeDb         *db.ExchangeDb
+	exchangeRunStore   *db.ExchangeRunStore
 	thingSnapshotStore *db.ExchangeThingSnapshotStore
 	scanTargetDb       *db.ScanTargetStore
 	runtimeServer      string
@@ -73,6 +74,7 @@ func New(
 	blueberry, version int,
 	exchangeCategories []resources.ExchangeCategory,
 	exchangeDb *db.ExchangeDb,
+	exchangeRunStore *db.ExchangeRunStore,
 	thingSnapshotStore *db.ExchangeThingSnapshotStore,
 	scanTargetDb *db.ScanTargetStore,
 ) *Bot {
@@ -83,6 +85,7 @@ func New(
 		version:            version,
 		exchangeCategories: exchangeCategories,
 		exchangeDb:         exchangeDb,
+		exchangeRunStore:   exchangeRunStore,
 		thingSnapshotStore: thingSnapshotStore,
 		scanTargetDb:       scanTargetDb,
 		runtimeServer:      cfg.RuntimeServer,

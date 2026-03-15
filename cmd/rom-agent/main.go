@@ -114,6 +114,7 @@ func main() {
 
 	// Start bots for each enabled client
 	exchangeDB := db.NewExchangeDb(resultDatabase)
+	exchangeRunStore := db.NewExchangeRunStore(resultDatabase)
 	thingSnapshotStore := db.NewExchangeThingSnapshotStore(resultDatabase)
 	sourceThingStore := db.NewSourceThingStore(sourceDatabase)
 	thingSnapshotRefresher := db.NewExchangeThingSnapshotRefresher(sourceThingStore, thingSnapshotStore)
@@ -144,6 +145,7 @@ func main() {
 			version,
 			resources.AllCategories,
 			exchangeDB,
+			exchangeRunStore,
 			thingSnapshotStore,
 			scanTargetDB,
 		)
