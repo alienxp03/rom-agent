@@ -83,9 +83,22 @@ type Config struct {
 	AuthBaseUrl                  string               `yaml:"auth_base_url"`
 	GameLinegroup                int                  `yaml:"game_linegroup"`
 	ExchangeThingSnapshotRefresh string               `yaml:"exchange_thing_snapshot_refresh_interval"`
-	ExchangeTargetRefresh        string               `yaml:"exchange_target_refresh_interval"`
-	ExchangeLowResultBackoff     string               `yaml:"exchange_low_result_backoff"`
-	ExchangeLowResultThreshold   int                  `yaml:"exchange_low_result_threshold"`
+	ExchangeRefresh              string               `yaml:"exchange_refresh_interval"`
+	BotRetryDelay                string               `yaml:"bot_retry_delay"`
+	CombatTimeSettleDelay        string               `yaml:"combat_time_settle_delay"`
+	ExchangeCloseDelay           string               `yaml:"exchange_close_delay"`
+	IdleLoopDelay                string               `yaml:"idle_loop_delay"`
+	BossQueryInterval            string               `yaml:"boss_query_interval"`
+	BossFastQueryWindow          string               `yaml:"boss_fast_query_window"`
+	BossWaveActiveQueryInterval  string               `yaml:"boss_wave_active_query_interval"`
+	BossAllDeadQueryInterval     string               `yaml:"boss_all_dead_query_interval"`
+	BossWaveStartQueryInterval   string               `yaml:"boss_wave_start_query_interval"`
+	BossJumpMinBeforeWave        string               `yaml:"boss_jump_min_before_wave"`
+	BossJumpMaxBeforeWave        string               `yaml:"boss_jump_max_before_wave"`
+	BossJumpInterval             string               `yaml:"boss_jump_interval"`
+	PvpQueryInterval             string               `yaml:"pvp_query_interval"`
+	WocQueryInterval             string               `yaml:"woc_query_interval"`
+	WoeQueryInterval             string               `yaml:"woe_query_interval"`
 }
 
 // Load reads and parses the configuration file
@@ -269,19 +282,68 @@ func (c *Config) ExchangeThingSnapshotRefreshInterval() time.Duration {
 	return parseDurationOrDefault(c.ExchangeThingSnapshotRefresh, 12*time.Hour)
 }
 
-func (c *Config) ExchangeTargetRefreshInterval() time.Duration {
-	return parseDurationOrDefault(c.ExchangeTargetRefresh, 5*time.Minute)
+func (c *Config) ExchangeRefreshInterval() time.Duration {
+	return parseDurationOrDefault(c.ExchangeRefresh, 5*time.Minute)
 }
 
-func (c *Config) ExchangeLowResultBackoffInterval() time.Duration {
-	return parseDurationOrDefault(c.ExchangeLowResultBackoff, 10*time.Minute)
+func (c *Config) BotRetryDelayInterval() time.Duration {
+	return parseDurationOrDefault(c.BotRetryDelay, 40*time.Second)
 }
 
-func (c *Config) ExchangeLowResultThresholdValue() int {
-	if c.ExchangeLowResultThreshold <= 0 {
-		return 10
-	}
-	return c.ExchangeLowResultThreshold
+func (c *Config) CombatTimeSettleDelayInterval() time.Duration {
+	return parseDurationOrDefault(c.CombatTimeSettleDelay, 500*time.Millisecond)
+}
+
+func (c *Config) ExchangeCloseDelayInterval() time.Duration {
+	return parseDurationOrDefault(c.ExchangeCloseDelay, 2*time.Second)
+}
+
+func (c *Config) IdleLoopDelayInterval() time.Duration {
+	return parseDurationOrDefault(c.IdleLoopDelay, 1*time.Second)
+}
+
+func (c *Config) BossQueryIntervalValue() time.Duration {
+	return parseDurationOrDefault(c.BossQueryInterval, 60*time.Second)
+}
+
+func (c *Config) BossFastQueryWindowInterval() time.Duration {
+	return parseDurationOrDefault(c.BossFastQueryWindow, 105*time.Minute)
+}
+
+func (c *Config) BossWaveActiveQueryIntervalValue() time.Duration {
+	return parseDurationOrDefault(c.BossWaveActiveQueryInterval, 5*time.Second)
+}
+
+func (c *Config) BossAllDeadQueryIntervalValue() time.Duration {
+	return parseDurationOrDefault(c.BossAllDeadQueryInterval, 5*time.Minute)
+}
+
+func (c *Config) BossWaveStartQueryIntervalValue() time.Duration {
+	return parseDurationOrDefault(c.BossWaveStartQueryInterval, 5*time.Second)
+}
+
+func (c *Config) BossJumpMinBeforeWaveInterval() time.Duration {
+	return parseDurationOrDefault(c.BossJumpMinBeforeWave, 15*time.Minute)
+}
+
+func (c *Config) BossJumpMaxBeforeWaveInterval() time.Duration {
+	return parseDurationOrDefault(c.BossJumpMaxBeforeWave, 60*time.Minute)
+}
+
+func (c *Config) BossJumpIntervalValue() time.Duration {
+	return parseDurationOrDefault(c.BossJumpInterval, 75*time.Minute)
+}
+
+func (c *Config) PvpQueryIntervalValue() time.Duration {
+	return parseDurationOrDefault(c.PvpQueryInterval, 20*time.Minute)
+}
+
+func (c *Config) WocQueryIntervalValue() time.Duration {
+	return parseDurationOrDefault(c.WocQueryInterval, 60*time.Minute)
+}
+
+func (c *Config) WoeQueryIntervalValue() time.Duration {
+	return parseDurationOrDefault(c.WoeQueryInterval, 30*time.Minute)
 }
 
 func parseDurationOrDefault(raw string, fallback time.Duration) time.Duration {

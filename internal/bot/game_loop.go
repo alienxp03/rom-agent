@@ -67,7 +67,7 @@ func (b *Bot) gameLoop(ctx context.Context) error {
 		if err := b.gameClient.GetCombatTime(ctx); err != nil {
 			slog.Warn("Failed to get combat time", "error", err)
 		}
-		time.Sleep(500 * time.Millisecond)
+		time.Sleep(b.clientConfig.CombatTimeSettleDelayInterval())
 	}
 
 	// Leave party if auto-party is enabled
@@ -156,7 +156,7 @@ func (b *Bot) mainLoop(ctx context.Context, clientCfg *config.Client, mvpJumpZon
 			if exchangeIsOpen {
 				b.gameClient.ExitExchange(ctx)
 				exchangeIsOpen = false
-				time.Sleep(2 * time.Second)
+				time.Sleep(b.clientConfig.ExchangeCloseDelayInterval())
 			}
 		}
 
@@ -224,7 +224,7 @@ func (b *Bot) mainLoop(ctx context.Context, clientCfg *config.Client, mvpJumpZon
 		// Exchange scraping
 		if !clientCfg.EnableExchange {
 			if !clientCfg.EnableCombat {
-				time.Sleep(1 * time.Second)
+				time.Sleep(b.clientConfig.IdleLoopDelayInterval())
 			}
 			continue
 		}
@@ -250,14 +250,9 @@ func (b *Bot) mainLoop(ctx context.Context, clientCfg *config.Client, mvpJumpZon
 		}
 
 		// Wait before starting next exchange cycle
-		exchangeCycleDelay := 5 * time.Minute
-		if b.scanTargetDb != nil {
-			exchangeCycleDelay = b.clientConfig.ExchangeTargetRefreshInterval()
-			if b.lastExchangeRecordCount < b.clientConfig.ExchangeLowResultThresholdValue() {
-				exchangeCycleDelay = b.clientConfig.ExchangeLowResultBackoffInterval()
-			}
-		}
-		slog.Info("Exchange cycle completed, waiting before next cycle",
+		exchangeCycleDelay := b.clientConfig.ExchangeRefreshInterval()
+		slog.Info("Exchange cycle completed, waiting..",
+			"delay", exchangeCycleDelay.String(),
 			"delay_minutes", int(exchangeCycleDelay.Minutes()),
 			"record_count", b.lastExchangeRecordCount)
 
@@ -281,16 +276,16 @@ func (b *Bot) shouldQueryBoss(
 		return false
 	}
 
-	bossQueryInterval := 60 * time.Second // 1 min default
-	fastQueryWindow := 105 * time.Minute  // 105 mins before next wave
+	bossQueryInterval := b.clientConfig.BossQueryIntervalValue()
+	fastQueryWindow := b.clientConfig.BossFastQueryWindowInterval()
 
 	if !nextWaveTime.IsZero() {
 		if now.After(nextWaveTime) || now.Equal(nextWaveTime) {
-			bossQueryInterval = 5 * time.Second // Already next wave
+			bossQueryInterval = b.clientConfig.BossWaveActiveQueryIntervalValue()
 		} else if lastAliveCount == 0 && now.Before(nextWaveTime) {
-			bossQueryInterval = 5 * time.Minute // All bosses dead
+			bossQueryInterval = b.clientConfig.BossAllDeadQueryIntervalValue()
 		} else if now.Before(nextWaveTime) && nextWaveTime.Sub(now) > fastQueryWindow {
-			bossQueryInterval = 5 * time.Second // Start of wave
+			bossQueryInterval = b.clientConfig.BossWaveStartQueryIntervalValue()
 		}
 	}
 
@@ -305,11 +300,14 @@ func (b *Bot) shouldQueryBossAndJumpZones(
 		return false
 	}
 
-	// Only jump 60-15 mins before next wave
+	minBeforeWave := b.clientConfig.BossJumpMinBeforeWaveInterval()
+	maxBeforeWave := b.clientConfig.BossJumpMaxBeforeWaveInterval()
+	jumpInterval := b.clientConfig.BossJumpIntervalValue()
+
+	// Only jump inside the configured window before the next wave.
 	if !nextWaveTime.IsZero() && now.Before(nextWaveTime) {
 		timeUntilWave := nextWaveTime.Sub(now)
-		if timeUntilWave > 15*time.Minute && timeUntilWave < 60*time.Minute {
-			jumpInterval := 75 * time.Minute
+		if timeUntilWave > minBeforeWave && timeUntilWave < maxBeforeWave {
 			return lastJumpTime.IsZero() || now.Sub(lastJumpTime) > jumpInterval
 		}
 	}
@@ -321,7 +319,7 @@ func (b *Bot) shouldQueryPvp(clientCfg *config.Client, now, lastQueryTime time.T
 	if !clientCfg.EnablePvp {
 		return false
 	}
-	pvpQueryInterval := 20 * time.Minute
+	pvpQueryInterval := b.clientConfig.PvpQueryIntervalValue()
 	return lastQueryTime.IsZero() || now.Sub(lastQueryTime) > pvpQueryInterval
 }
 
@@ -329,7 +327,7 @@ func (b *Bot) shouldQueryWoc(clientCfg *config.Client, now, lastQueryTime time.T
 	if !clientCfg.EnableWoc {
 		return false
 	}
-	wocQueryInterval := 60 * time.Minute
+	wocQueryInterval := b.clientConfig.WocQueryIntervalValue()
 	return lastQueryTime.IsZero() || now.Sub(lastQueryTime) > wocQueryInterval
 }
 
@@ -337,7 +335,7 @@ func (b *Bot) shouldQueryWoe(clientCfg *config.Client, now, lastQueryTime time.T
 	if !clientCfg.EnableWoe {
 		return false
 	}
-	woeQueryInterval := 30 * time.Minute
+	woeQueryInterval := b.clientConfig.WoeQueryIntervalValue()
 	return lastQueryTime.IsZero() || now.Sub(lastQueryTime) > woeQueryInterval
 }
 

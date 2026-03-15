@@ -110,7 +110,7 @@ func (b *Bot) Run(ctx context.Context) error {
 				select {
 				case <-ctx.Done():
 					return ctx.Err()
-				case <-time.After(40 * time.Second):
+				case <-time.After(b.clientConfig.BotRetryDelayInterval()):
 					// Continue to next iteration
 				}
 			}

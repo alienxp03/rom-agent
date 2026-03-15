@@ -21,9 +21,22 @@ client_code: 62  # Client code
 auth_base_url: "https://sea-prod-auth.ro.com"  # GL: na-prod-auth.ro.com, SEA: sea-prod-auth.ro.com
 game_linegroup: 1  # Server identifier
 exchange_thing_snapshot_refresh_interval: "12h"
-exchange_target_refresh_interval: "5m"
-exchange_low_result_threshold: 10
-exchange_low_result_backoff: "10m"
+exchange_refresh_interval: "5m"
+bot_retry_delay: "40s"
+combat_time_settle_delay: "500ms"
+exchange_close_delay: "2s"
+idle_loop_delay: "1s"
+boss_query_interval: "1m"
+boss_fast_query_window: "105m"
+boss_wave_active_query_interval: "5s"
+boss_all_dead_query_interval: "5m"
+boss_wave_start_query_interval: "5s"
+boss_jump_min_before_wave: "15m"
+boss_jump_max_before_wave: "60m"
+boss_jump_interval: "75m"
+pvp_query_interval: "20m"
+woc_query_interval: "60m"
+woe_query_interval: "30m"
 
 # Client configurations
 clients:
